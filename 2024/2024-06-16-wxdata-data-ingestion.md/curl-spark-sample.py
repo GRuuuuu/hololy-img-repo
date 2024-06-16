@@ -8,7 +8,7 @@ def init_spark():
         .config("spark.hadoop.fs.s3a.bucket.{BUCKET_NAME}.endpoint" ,"{BUCKET_ENDPOINT}") \
         .config("spark.hadoop.fs.s3a.bucket.{BUCKET_NAME}.access.key" ,"{BUCKET_ACCESSKEY}") \
         .config("spark.hadoop.fs.s3a.bucket.{BUCKET_NAME}.secret.key" ,"{BUCKET_SECRETKEY}") \
-        .config("fs.s3a.path.style.access", "true") \
+        .config("spark.hadoop.fs.s3a.bucket.{BUCKET_NAME}.path.style.access", "true") \
         .enableHiveSupport() \
         .getOrCreate()
     return spark
@@ -36,7 +36,7 @@ def basic_iceberg_table_operations(spark):
 
 def create_table_from_parquet_data(spark):
     # load parquet data into dataframce
-    df = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_NAME}/yellow_tripdata_2022-01.parquet")
+    df = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_PATH}/yellow_tripdata_2022-01.parquet")
     df = df.drop("tpep_pickup_datetime", "tpep_dropoff_datetime")
     # write the dataframe into an Iceberg table
     df.writeTo("{CATALOG_NAME}.{SCHEMA_NAME}.{TABLE_NAME1}").create()
@@ -47,7 +47,7 @@ def create_table_from_parquet_data(spark):
 
 def ingest_from_csv_temp_table(spark):
     # load csv data into a dataframe
-    csvDF = spark.read.option("header",True).csv("file:///mnts/{CPD_PV_NAME}/zipcodes.csv")
+    csvDF = spark.read.option("header",True).csv("file:///mnts/{CPD_PV_PATH}/zipcodes.csv")
     csvDF.createOrReplaceTempView("tempCSVTable")
     # load temporary table into an Iceberg table
     spark.sql('create or replace table {CATALOG_NAME}.{SCHEMA_NAME}.{TABLE_NAME2} using iceberg as select * from tempCSVTable')
@@ -57,11 +57,11 @@ def ingest_from_csv_temp_table(spark):
     spark.sql('select * from {CATALOG_NAME}.{SCHEMA_NAME}.{TABLE_NAME2}').show()
 
 def ingest_monthly_data(spark):
-    df_feb = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_NAME}/yellow_tripdata_2022-02.parquet")
-    df_march = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_NAME}/yellow_tripdata_2022-03.parquet")
-    df_april = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_NAME}/yellow_tripdata_2022-04.parquet")
-    df_may = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_NAME}/yellow_tripdata_2022-05.parquet")
-    df_june = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_NAME}/yellow_tripdata_2022-06.parquet")
+    df_feb = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_PATH}/yellow_tripdata_2022-02.parquet")
+    df_march = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_PATH}/yellow_tripdata_2022-03.parquet")
+    df_april = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_PATH}/yellow_tripdata_2022-04.parquet")
+    df_may = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_PATH}/yellow_tripdata_2022-05.parquet")
+    df_june = spark.read.option("header",True).parquet("file:///mnts/{CPD_PV_PATH}/yellow_tripdata_2022-06.parquet")
     df_q1_q2 = df_feb.union(df_march).union(df_april).union(df_may).union(df_june)
     df_q1_q2 = df_q1_q2.drop("tpep_pickup_datetime", "tpep_dropoff_datetime")
     df_q1_q2.write.insertInto("{CATALOG_NAME}.{SCHEMA_NAME}.{TABLE_NAME1}")
