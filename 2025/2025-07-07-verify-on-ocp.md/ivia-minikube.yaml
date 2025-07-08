@@ -1,0 +1,606 @@
+#Assumes create-secrets.sh used to create key file, iviaadmin, and cfgsvc secrets
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ldaplib
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 50M
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ldapslapd
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 50M
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ldapsecauthority
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 50M
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresqldata
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 50M
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iviaconfig
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 50M
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openldap
+  labels:
+    app: openldap
+spec:
+  selector:
+    matchLabels:
+      app: openldap
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: openldap
+    spec:
+      serviceAccountName: verifyaccess-anyuid
+      volumes:
+        - name: ldaplib
+          persistentVolumeClaim:
+            claimName: ldaplib
+        - name: ldapslapd
+          persistentVolumeClaim:
+            claimName: ldapslapd
+        - name: ldapsecauthority
+          persistentVolumeClaim:
+            claimName: ldapsecauthority
+        - name: openldap-keys
+          secret:
+            secretName: openldap-keys
+      containers:
+        - name: openldap
+          image: icr.io/isva/verify-access-openldap:10.0.6.0
+          livenessProbe:
+            tcpSocket:
+              port: 636
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: 636
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          ports:
+            - containerPort: 636
+          env:
+            - name: LDAP_DOMAIN
+              value: ibm.com
+            - name: LDAP_ADMIN_PASSWORD
+              value: Passw0rd
+            - name: LDAP_CONFIG_PASSWORD
+              value: Passw0rd
+          volumeMounts:
+            - mountPath: /var/lib/ldap
+              name: ldaplib
+            - mountPath: /etc/ldap/slapd.d
+              name: ldapslapd
+            - mountPath: /var/lib/ldap.secAuthority
+              name: ldapsecauthority
+            - mountPath: /container/service/slapd/assets/certs
+              name: openldap-keys
+# This line is needed when running on Kubernetes 1.9.4 or above
+          args: [ "--copy-service"]
+# useful for debugging startup issues - can run bash, then exec to the container and poke around
+#          command: [ "/bin/bash"]
+#          args: [ "-c", "while /bin/true ; do sleep 5; done" ]
+# Just this line to get debug output from openldap startup
+#          args: [ "--loglevel" , "trace","--copy-service"]
+---
+# for external service access, see https://console.bluemix.net/docs/containers/cs_apps.html#cs_apps_public_nodeport
+apiVersion: v1
+kind: Service
+metadata:
+  name: openldap
+  labels:
+    app: openldap
+spec:
+  ports:
+    - port: 636
+      name: ldaps
+      protocol: TCP
+  selector:
+    app: openldap
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  labels:
+    app: postgresql
+spec:
+  selector:
+    matchLabels:
+      app: postgresql
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      serviceAccountName: verifyaccess-nonroot 
+      volumes:
+        - name: postgresqldata
+          persistentVolumeClaim:
+            claimName: postgresqldata
+        - name: postgresql-keys
+          secret:
+            secretName: postgresql-keys
+      containers:
+        - name: postgresql
+          image: icr.io/ivia/ivia-postgresql:11.0.0.0
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: Passw0rd
+            - name: POSTGRES_DB
+              value: ivia
+            - name: POSTGRES_SSL_KEYDB
+              value: /var/local/server.pem
+            - name: PGDATA
+              value: /var/lib/postgresql/data/db-files/
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgresqldata
+            - mountPath: /var/local
+              name: postgresql-keys
+# useful for debugging startup issues - can run bash, then exec to the container and poke around
+#          command: [ "/bin/bash"]
+#          args: [ "-c", "while /bin/true ; do sleep 5; done" ]
+---
+# for external service access, see https://console.bluemix.net/docs/containers/cs_apps.html#cs_apps_public_nodeport
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+spec:
+  ports:
+    - port: 5432
+      name: postgresql
+      protocol: TCP
+  selector:
+    app: postgresql
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iviaconfig
+  labels:
+    app: iviaconfig
+spec:
+  selector:
+    matchLabels:
+      app: iviaconfig
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: iviaconfig
+    spec:
+      serviceAccountName: verifyaccess-config
+      securityContext:
+        runAsUser: 0
+        runAsNonRoot: false 
+      volumes:
+        - name: iviaconfig
+          persistentVolumeClaim:
+            claimName: iviaconfig
+        - name: iviaconfig-logs
+          emptyDir: {}
+      containers:
+        - name: iviaconfig
+          image: icr.io/ivia/ivia-config:11.0.0.0
+          volumeMounts:
+            - mountPath: /var/shared
+              name: iviaconfig
+            - mountPath: /var/application.logs
+              name: iviaconfig-logs
+          env:
+            - name: CONTAINER_TIMEZONE
+              value: Asia/Seoul 
+            - name: ADMIN_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: iviaadmin
+                  key: adminpw
+          livenessProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+              - livenessProbe
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              port: 9443
+              path: /core/login
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 2
+          startupProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 2
+#          command: [ "/sbin/bootstrap.sh" ]
+      imagePullSecrets:
+        - name: dockerlogin
+---
+# for external service access, see https://console.bluemix.net/docs/containers/cs_apps.html#cs_apps_public_nodeport
+apiVersion: v1
+kind: Service
+metadata:
+  name: iviaconfig
+spec:
+  ports:
+    - port: 9443
+      name: iviaconfig
+      protocol: TCP
+  selector:
+    app: iviaconfig
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iviawrprp1
+  labels:
+    app: iviawrprp1
+spec:
+  selector:
+    matchLabels:
+      app: iviawrprp1
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: iviawrprp1
+    spec:
+      volumes:
+        - name: iviaconfig
+          emptyDir: {}
+        - name: iviawrprp1-logs
+          emptyDir: {}
+      containers:
+        - name: iviawrprp1
+          image: icr.io/ivia/ivia-wrp:11.0.0.0
+          ports:
+            - containerPort: 9443
+          volumeMounts:
+            - mountPath: /var/shared
+              name: iviaconfig
+            - mountPath: /var/application.logs
+              name: iviawrprp1-logs
+          env:
+            - name: INSTANCE
+              value: rp1
+            - name: CONTAINER_TIMEZONE
+              value: Asia/Seoul
+            - name: CONFIG_SERVICE_URL
+              value: https://iviaconfig:9443/shared_volume
+            - name: CONFIG_SERVICE_USER_NAME
+              value: cfgsvc
+            - name: CONFIG_SERVICE_USER_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: configreader
+                  key: cfgsvcpw
+            - name: CONFIG_SERVICE_TLS_CACERT
+              value: disabled
+          livenessProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+              - livenessProbe
+            periodSeconds: 10
+            failureThreshold: 6000
+            timeoutSeconds: 2
+          readinessProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 2000
+      imagePullSecrets:
+        - name: dockerlogin
+---
+# for external service access, see https://console.bluemix.net/docs/containers/cs_apps.html#cs_apps_public_nodeport
+apiVersion: v1
+kind: Service
+metadata:
+  name: iviawrprp1
+spec:
+  ports:
+    - port: 9443
+      name: iviawrprp1
+      protocol: TCP
+  selector:
+    app: iviawrprp1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iviaruntime
+  labels:
+    app: iviaruntime
+spec:
+  selector:
+    matchLabels:
+      app: iviaruntime
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: iviaruntime
+    spec:
+      volumes:
+        - name: iviaconfig
+          emptyDir: {}
+        - name: iviaruntime-logs
+          emptyDir: {}
+      containers:
+        - name: iviaruntime
+          image: icr.io/ivia/ivia-runtime:11.0.0.0
+          ports:
+            - containerPort: 9443
+          volumeMounts:
+            - mountPath: /var/shared
+              name: iviaconfig
+            - mountPath: /var/application.logs
+              name: iviaruntime-logs
+          env:
+            - name: CONTAINER_TIMEZONE
+              value: Europe/London
+            - name: CONFIG_SERVICE_URL
+              value: https://iviaconfig:9443/shared_volume
+            - name: CONFIG_SERVICE_USER_NAME
+              value: cfgsvc
+            - name: CONFIG_SERVICE_USER_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: configreader
+                  key: cfgsvcpw
+            - name: CONFIG_SERVICE_TLS_CACERT
+              value: disabled
+          livenessProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+              - livenessProbe
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              port: 9443
+              path: /sps/static/ibm-logo.png
+            periodSeconds: 10
+            failureThreshold: 2
+            timeoutSeconds: 2
+          startupProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 2
+      imagePullSecrets:
+        - name: dockerlogin
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iviaruntime
+spec:
+  ports:
+    - port: 9443
+      name: iviaruntime
+      protocol: TCP
+  selector:
+    app: iviaruntime
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iviadsc
+  labels:
+    app: iviadsc
+spec:
+  selector:
+    matchLabels:
+      app: iviadsc
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: iviadsc
+    spec:
+      volumes:
+        - name: iviaconfig
+          emptyDir: {}
+        - name: iviadsc-logs
+          emptyDir: {}
+      containers:
+        - name: iviadsc
+          image: icr.io/ivia/ivia-dsc:11.0.0.0
+          ports:
+            - containerPort: 9443
+            - containerPort: 9444
+          volumeMounts:
+            - mountPath: /var/shared
+              name: iviaconfig
+            - mountPath: /var/application.logs
+              name: iviadsc-logs
+          env:
+            - name: INSTANCE
+              value: '1'
+            - name: CONTAINER_TIMEZONE
+              value: Asia/Seoul
+            - name: CONFIG_SERVICE_URL
+              value: https://iviaconfig:9443/shared_volume
+            - name: CONFIG_SERVICE_USER_NAME
+              value: cfgsvc
+            - name: CONFIG_SERVICE_USER_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: configreader
+                  key: cfgsvcpw
+            - name: CONFIG_SERVICE_TLS_CACERT
+              value: disabled
+          livenessProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+              - livenessProbe
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+              - /sbin/health_check.sh
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 2
+      imagePullSecrets:
+        - name: dockerlogin
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iviadsc
+spec:
+  ports:
+    - port: 9443
+      name: iviadsc-svc
+      protocol: TCP
+    - port: 9444
+      name: iviadsc-rep
+      protocol: TCP
+  selector:
+    app: iviadsc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iviaop
+  labels:
+    app: iviaop
+  annotations:
+    version: "2.0"
+spec:
+  selector:
+    matchLabels:
+      app: iviaop
+  replicas: 1
+  template: 
+    metadata:
+      labels:
+        app: iviaop
+    spec:
+      volumes:
+        - name: iviaop-config
+          configMap:
+            name: iviaop-config
+      containers:
+        - name: isvaop
+          # The fully qualified name of the IVIAOP image.
+          image: icr.io/ivia/ivia-oidc-provider:25.03
+          imagePullPolicy: Always
+          # Mount our volumes to the expected configuration directory
+          volumeMounts:
+            - name: iviaop-config
+              mountPath: /var/isvaop/config
+          readinessProbe:
+            httpGet:
+              path: /healthcheck/ready
+              port: 8436
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /healthcheck/alive
+              port: 8436
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iviaop
+  labels:
+    app: iviaop
+spec:
+  ports:
+    - port: 8436
+      name: iviaop
+  selector:
+    app: iviaop
