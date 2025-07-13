@@ -170,7 +170,7 @@ spec:
             secretName: postgresql-keys
       containers:
         - name: postgresql
-          image: icr.io/ivia/ivia-postgresql:11.0.0.0
+          image: icr.io/ivia/ivia-postgresql:11.0.1.0
           livenessProbe:
             tcpSocket:
               port: 5432
@@ -244,7 +244,7 @@ spec:
           emptyDir: {}
       containers:
         - name: iviaconfig
-          image: icr.io/ivia/ivia-config:11.0.0.0
+          image: icr.io/ivia/ivia-config:11.0.1.0
           volumeMounts:
             - mountPath: /var/shared
               name: iviaconfig
@@ -321,7 +321,7 @@ spec:
           emptyDir: {}
       containers:
         - name: iviawrprp1
-          image: icr.io/ivia/ivia-wrp:11.0.0.0
+          image: icr.io/ivia/ivia-wrp:11.0.1.0
           ports:
             - containerPort: 9443
           volumeMounts:
@@ -399,7 +399,7 @@ spec:
           emptyDir: {}
       containers:
         - name: iviaruntime
-          image: icr.io/ivia/ivia-runtime:11.0.0.0
+          image: icr.io/ivia/ivia-runtime:11.0.1.0
           ports:
             - containerPort: 9443
           volumeMounts:
@@ -482,7 +482,7 @@ spec:
           emptyDir: {}
       containers:
         - name: iviadsc
-          image: icr.io/ivia/ivia-dsc:11.0.0.0
+          image: icr.io/ivia/ivia-dsc:11.0.1.0
           ports:
             - containerPort: 9443
             - containerPort: 9444
